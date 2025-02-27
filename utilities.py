@@ -124,7 +124,8 @@ def debug(*args, debug_msg=None, log_file=None, **kwargs):
         dt = time.time()-ti
         h, m, s = dt//3600, (dt-dt//3600)//60, dt-(dt-dt//3600)//60
         print(
-            f"DONE in {h:.0f}h{m:.0f}m{s:.4f}s"+ \
+            f"DONE in {h:.0f}h{m:.0f}m{s:.4f}s" + \
+            f"\n  [OUTPUT] {out}" + \
             int(0 if debug_msg is None else 1)*f"\n  [INFO] {debug_msg}",
             file=open(log_file, "a") if log_file is not None else sys.stdout
         )
