@@ -75,7 +75,7 @@ class Bundle:
 
     def __init__(self, method, *args, **kwargs):
         self.method = method
-        self.args = args,
+        self.args = args
         self.kwargs = kwargs
 
 class BaseMethod:
@@ -120,7 +120,8 @@ class debug(BaseMethod):
 
     def main(self, *args, debug_msg=None, **kwargs):
 
-        self.reset_maybe()
+        if self.log_file is not None:
+            self.reset_maybe()
 
         filename, line_number = self.get_caller_info()
         
@@ -265,58 +266,36 @@ def test():
 
         return sum
 
-    fnew = endow(f, debug=debug, remember=remember);print(dir(fnew.debug));quit()
+    f = endow(
+        f,
+        debug=Bundle(
+            debug,
+            log_file=None, #"/path/to/debug.log",
+            no_arrays=True # disable printing of arrays
+        )
+    )
+    # can also pass it without `Bundle` to use `debug` default arguments
+    # f = endow(
+    #     f,
+    #     debug=debug
+    # )
     iterator = range(0, 10**8)
     factor = 2
-
-    # Test to see if I can safely overwrite f with wrapper
-    # f = endow(f, debug=debug)
-    # print("Testing `debug` attribute (w/ `debug_msg`, `log_file`)")
-    # result = f.debug(
-    #     iterator,
-    #     factor=factor,
-    #     debug_msg="This is a test of `debug` functionality.",
-    #     log_file="test.log"
-    # )
-    # print(f"result = {result}\n")
-    # return
-    # IT WORKS!
     
     print("Testing `f`")
     result = f(iterator, factor=factor)
     print(f"result = {result}\n")
 
-    print("Testing wrapped `f`")
-    result = fnew(iterator, factor=factor)
-    print(f"result = {result}\n")
-
     # Testing `debug`
-    print("Testing `debug` attribute (no kwargs)")
-    result = fnew.debug(iterator, factor=factor)
+    print("Testing `debug` attribute (no `debug_msg`)")
+    result = f.debug(iterator, factor=factor)
     print(f"result = {result}\n")
 
     print("Testing `debug` attribute (w/ `debug_msg`)")
-    result = fnew.debug(
+    result = f.debug(
         iterator,
         factor=factor,
         debug_msg="This is a test of `debug` functionality."
-    )
-    print(f"result = {result}\n")
-
-    print("Testing `debug` attribute (w/ `debug_msg`, `log_file`)")
-    result = fnew.debug(
-        iterator,
-        factor=factor,
-        debug_msg="This is a test of `debug` functionality.",
-        log_file="test.log"
-    )
-    print(f"result = {result}\n")
-
-    print("Testing `debug` attribute (w/ `debug_msg`) and wrong input")
-    result = fnew.debug(
-        iterator,
-        factor=1.,
-        debug_msg="This is a test of `debug` functionality.", #won't get printed
     )
     print(f"result = {result}\n")
 
