@@ -88,6 +88,25 @@ class BaseMethod:
 
 # these are some functions that can be used as attributes for `endow`
 
+import inspect, time, sys, traceback, numpy, os
+
+def get_caller_info():
+    # Get the current frame (the frame of this function)
+    current_frame = inspect.currentframe()
+    
+    # Get the caller's frame (the frame of the function that called debug)
+    caller_frame = current_frame.f_back.f_back
+    
+    # Get the filename and line number from the caller's frame
+    filename = caller_frame.f_code.co_filename
+    line_number = caller_frame.f_lineno
+    
+    # Clean up the frame to avoid reference cycles
+    del current_frame
+    del caller_frame
+    
+    return filename, line_number
+
 # # DEBUG
 #
 # simple debugging utility. Features:
@@ -103,12 +122,9 @@ class BaseMethod:
 # output = f.debug(
 #     *args,
 #     **kwargs,
-#     debug_msg="...",
-#     log_file="/path/to/file.log"
+#     debug_msg="..."
 # ) 
 # ```
-
-import inspect, time, sys, traceback, numpy, os
 
 class debug(BaseMethod):
 
@@ -123,7 +139,7 @@ class debug(BaseMethod):
         if self.log_file is not None:
             self.reset_maybe()
 
-        filename, line_number = self.get_caller_info()
+        filename, line_number = get_caller_info()
         
         print(
             f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] calling"
@@ -185,25 +201,7 @@ class debug(BaseMethod):
                 )
             else:
                 numpy.set_printoptions()
-
-    @staticmethod
-    def get_caller_info():
-        # Get the current frame (the frame of this function)
-        current_frame = inspect.currentframe()
-        
-        # Get the caller's frame (the frame of the function that called debug)
-        caller_frame = current_frame.f_back.f_back
-        
-        # Get the filename and line number from the caller's frame
-        filename = caller_frame.f_code.co_filename
-        line_number = caller_frame.f_lineno
-        
-        # Clean up the frame to avoid reference cycles
-        del current_frame
-        del caller_frame
-        
-        return filename, line_number
-    
+  
     def reset_maybe(self):
         
         if os.path.exists(self.log_file):
@@ -227,24 +225,92 @@ class debug(BaseMethod):
 # 
 # ```
 
-def id():
-    pass
+import pickle, hashlib
 
-def remember(*args, **kwargs):
+class remember(BaseMethod):
 
-    a = {
-        "args": args,
-        "kwargs": kwargs,
+    def __init__(self, wrapper, wrapped_name, cachedir="./", warn=True):
+        super().__init__(wrapper, wrapped_name)
+        
+        self.path = cachedir.rstrip("/")
+        self.warn = warn
 
-    }
+    def main(self, *args, cache_id=None, skip=False, **kwargs):
 
-    output = remember.callback(*args, **kwargs)
+        if skip:
+            if self.warn:
+                print(f"Warning: You specified you want to skip this function: `{self.__wrapped_name__}`, this might generate errors! Make sure the output of this function doesn't affect other functions in your code.")
+            
+            return
+        
+        # if skip is kept to False, caches are generated or loaded
+        if cache_id is None:
+            args_id = self.get_cache_id(*args, **kwargs)
+            
+            # get id of wrapped function
+            wrapped_id = self.get_cache_id(self.__wrapped_name__)
 
-    a.update({"output": output})
+            # get id of path of filename from which function is called
+            filename_id = self.get_cache_id(os.path.abspath(get_caller_info()[0]))
 
-    id = id(*args, **kwargs)
+            cache_id = filename_id+wrapped_id+args_id
+        
+        # check if cache file exists
+        cache_path = f"{self.path}/{cache_id}"
+        if os.path.exists(cache_path):
+            out = pickle.load(open(cache_path, "rb"))
 
-    return output
+            if self.warn:
+                print(f"Warning: Cache was found for `{self.__wrapped_name__}` and given arguments, return type will be {type(out)}.")
+            
+            return out
+        else:
+            if self.warn:
+                print(f"Warning: Cache was not found for `{self.__wrapped_name__}` and given arguments, the function will run normally and the output will be cached at {cache_path}.")
+            
+            out = self.callback(*args, **kwargs)
+            pickle.dump(out, open(cache_path, "wb"))
+
+            return out
+            
+    def to_bytes(self, obj):
+
+        def subsample_bytes(arr):
+            
+            rng = numpy.random.RandomState(893)
+            inds = rng.randint(low=0, high=arr.size, size=1000)
+            b = arr.flat[inds]
+            b.flags.writeable = False
+            
+            return b.data.tobytes()
+    
+        if isinstance(obj, (str, int, float, bool, bytes)):
+            return str(obj).encode('utf-8')
+        elif isinstance(obj, (list, tuple)):
+            return b'['+b','.join(map(self.to_bytes, obj))+b']'
+        elif isinstance(obj, dict):
+            return b'{'+b','.join(
+                self.to_bytes(k) + b':'+self.to_bytes(v) for k, v in sorted(obj.items())
+            )+b'}'
+        elif isinstance(obj, set):
+            return b'{'+b','.join(sorted(map(self.to_bytes, obj)))+b'}'
+        elif isinstance(obj, numpy.ndarray):
+            return subsample_bytes(obj)
+        else:
+            # Fallback: Use pickle with protocol=4 (deterministic in Python 3.8+)
+            import pickle
+            return pickle.dumps(obj, protocol=4)
+
+    def get_cache_id(self, *args, hash_algo='sha1', length=6, **kwargs):
+        
+        hasher = hashlib.new(hash_algo)
+        
+        hasher.update(self.to_bytes(args))
+        hasher.update(self.to_bytes(kwargs))
+
+        full_hash = hasher.hexdigest()
+        
+        return full_hash[:length] if length else full_hash
 
 
 #endregion
@@ -272,7 +338,8 @@ def test():
             debug,
             log_file=None, #"/path/to/debug.log",
             no_arrays=True # disable printing of arrays
-        )
+        ),
+        remember=remember
     )
     # can also pass it without `Bundle` to use `debug` default arguments
     # f = endow(
@@ -300,6 +367,20 @@ def test():
     print(f"result = {result}\n")
 
     # Testing `remember`
+    print("Testing `remember` attribute")
+    result = f.remember(
+        iterator,
+        factor
+    )
+    print(f"result = {result}\n")
+
+    # retry, it should remember the previous command and there should be a cache file in the working directory
+    print("Testing `remember` attribute again (should be faster due to cache loading)")
+    result = f.remember(
+        iterator,
+        factor
+    )
+    print(f"result = {result}\n")
 
 if __name__=="__main__":
     test()
